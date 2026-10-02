@@ -11,4 +11,4 @@ resources:
 images:
 - name: search-service
   newName: ghcr.io/divya-somashekar/search-service
-  newTag: ff1e54d292a8
+  newTag: 2bed96dd79c9
