@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Matches what the `services` ApplicationSet derives from this directory's path.
+# Matches `namespace:` in this overlay's app.yaml, which is what the ApplicationSet uses.
 namespace: product-search
 resources:
 - ../../base

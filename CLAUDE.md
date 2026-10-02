@@ -28,9 +28,6 @@ There is no `platform/` any more. A datastore used by exactly one service lives 
 `base/`, which is where chakra's Redis already was. Promote one to `platform/<name>/` with its own
 Application only when a second service genuinely needs it.
 
-```text
-```
-
 ## Rules that matter
 
 - **A namespace is per product, not per service.** It is an RBAC, quota and NetworkPolicy
@@ -49,29 +46,36 @@ Application only when a second service genuinely needs it.
 - **Every git `repoURL` must point at this repo**, never at an application repo. CI fails the build
   if a reference to `github.com/Divya-Somashekar/product-search` survives — that is the classic
   split-repo regression.
-- **The `services` ApplicationSet derives both the Application name and the namespace from the
-  directory name** (`index .path.segments 1`). Renaming a directory renames and re-creates the
-  Application; with `prune: true` that deletes the old one's resources. Rename deliberately.
-- **An overlay's `kustomization.yaml` must set `namespace:` to its own directory name**, matching the
-  generated destination. If they diverge ArgoCD reports a conflict rather than applying to the wrong
-  namespace, but it is still a broken sync.
+- **An Application's identity comes from its `app.yaml`, not from its directory.** The
+  ApplicationSet uses a git *files* generator over `services/*/overlays/local/app.yaml` and reads
+  `name:` and `namespace:` out of it, so renaming a directory only moves the source path, but
+  editing `name:` deletes the old Application and creates a new one — and with the finalizer below
+  that deletion cascades into the service's datastore. Change `name:` deliberately.
+- **An overlay's `kustomization.yaml` must set `namespace:` to the same value as its `app.yaml`.**
+  Both are maintained by hand, and the directory name is no longer the answer: `catalog-service`
+  and `search-service` both deploy into `product-search`. If the two diverge ArgoCD reports a
+  conflict rather than applying to the wrong namespace, but it is still a broken sync.
 - **`images[].name` in an overlay is a contract with the releasing repo's workflow.** It is the
   placeholder `kustomize edit set image <name>=…` targets. Changing it silently breaks that repo's
   deploys — nothing fails, the tag simply stops being updated.
 - **CI is `on: pull_request` only, deliberately.** App repos push tag bumps to `main` here with a
   PAT or App token, and unlike `GITHUB_TOKEN` those pushes *do* trigger workflows. An `on: push` job
   that wrote back to the repo would loop.
-- **Operators need `ServerSideApply=true`** (CRDs too large for client-side apply), and `data` plus
-  the generated Applications need `SkipDryRunOnMissingResource=true` and a `retry` block, because
-  sync waves order apps but do not wait for CRDs to be established.
+- **Operators need `ServerSideApply=true`** (CRDs too large for client-side apply), and the
+  generated Applications need `SkipDryRunOnMissingResource=true` and a `retry` block, because sync
+  waves order apps but do not wait for CRDs to be established. Every service overlay now renders a
+  CRD-backed datastore, so this applies to all of them, not just a single `data` app.
 - Credentials come only from operator-created Secrets: `products-db-app` (CloudNativePG) and
   `search-es-elastic-user` (ECK). Service names `products-db-rw:5432`, `search-es-http:9200`.
 
 ## Commands
 
 ```bash
-kustomize build services/catalog-service/overlays/local   # what ArgoCD's DESIRED tab shows
-kustomize build services/search-service/overlays/local
+# kubectl's built-in kustomize; the standalone `kustomize` binary is not installed here, though CI
+# does use it. Render every overlay, not just the one you edited.
+kubectl kustomize services/catalog-service/overlays/local   # what ArgoCD's DESIRED tab shows
+kubectl kustomize services/search-service/overlays/local
+kubectl kustomize services/chakra/overlays/local
 kubectl apply --dry-run=client -f apps/ -f bootstrap/
 kubectl -n argocd get applications
 
@@ -94,12 +98,14 @@ indentation and stray terminal text. Quote URLs inside `{ … }` flow mappings.
 - One environment (`overlays/local`); stg/prod overlays would sit beside it.
 - Each datastore is a single instance sized for a demo, and `search-service` keeps its change-log
   cursor in memory, so a restart replays the catalog's change log from the beginning.
-- The catalog's `/internal/*` feed is unauthenticated and is now a cross-namespace call, so without
-  a NetworkPolicy anything in the cluster can read the whole catalogue.
+- The catalog's `/internal/*` feed is unauthenticated. It is an in-namespace call
+  (`CATALOG_BASE_URL: http://catalog-service`), but with no NetworkPolicy anything in the cluster
+  can still read the whole catalogue.
 - Demo data is loaded by Flyway under the `demo` profile — never enable it anywhere real.
 
 ## Conventions
 
 - Conventional commits. `chore(deploy): <service> <sha>` is the release bot from an app repo.
-- A service directory name is its Application name, its namespace, and its kustomize image key.
-  Keep the three identical.
+- A service directory name is its Application name (`app.yaml`'s `name:`) and its kustomize image
+  key. Keep those two identical. The namespace is set separately in `app.yaml` and is per product,
+  so it matches the directory only when the service is its own product, as chakra is.
