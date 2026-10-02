@@ -1,3 +1,5 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources: [deployment.yaml, service.yaml, pdb.yaml]
+# The Elasticsearch this service owns, and the Kibana that reads it. Not in platform/: nothing
+# else uses either, so "shared infrastructure" would be a fiction.
+resources: [deployment.yaml, service.yaml, pdb.yaml, elasticsearch.yaml, kibana.yaml]

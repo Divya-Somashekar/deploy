@@ -17,18 +17,28 @@ deploy/
 ├── apps/
 │   ├── eck-operator.yaml     Helm, external repo, wave -1
 │   ├── cnpg-operator.yaml    Helm, external repo, wave -1
-│   ├── data.yaml             two Applications, wave 0: data-catalog, data-search
-│   └── services.yaml         ApplicationSet -> services/*/overlays/local, wave 1
-├── platform/data-catalog/    Postgres (CloudNativePG) -> ns catalog-service
-├── platform/data-search/     Elasticsearch + Kibana (ECK) -> ns search-service
+│   └── services.yaml         ApplicationSet, wave 1; reads each service's overlay app.yaml
 └── services/
-    ├── catalog-service/{base,overlays/local}
-    ├── search-service/{base,overlays/local}
-    └── chakra/{base,overlays/local}
+    ├── catalog-service/{base,overlays/local}   + postgres.yaml      -> ns product-search
+    ├── search-service/{base,overlays/local}    + elasticsearch.yaml, kibana.yaml
+    └── chakra/{base,overlays/local}            + redis.yaml         -> ns chakra
+```
+
+There is no `platform/` any more. A datastore used by exactly one service lives in that service's
+`base/`, which is where chakra's Redis already was. Promote one to `platform/<name>/` with its own
+Application only when a second service genuinely needs it.
+
+```text
 ```
 
 ## Rules that matter
 
+- **A namespace is per product, not per service.** It is an RBAC, quota and NetworkPolicy
+  boundary, so it belongs to whoever owns the thing. `catalog-service` and `search-service` are two
+  services of one product and share `product-search`; chakra is its own and keeps `chakra`. Each
+  service declares its name and namespace in `overlays/local/app.yaml`, which the ApplicationSet
+  reads — deriving it from the directory name would force a namespace per service, and with it a
+  separate copy of every datastore, since Secrets cannot cross namespaces.
 - **An Application that owns stateful resources needs
   `finalizers: [resources-finalizer.argocd.argoproj.io]`.** `prune: true` only removes resources
   that disappear from a *live* Application's manifests. Delete or rename the Application itself and
@@ -62,12 +72,16 @@ deploy/
 ```bash
 kustomize build services/catalog-service/overlays/local   # what ArgoCD's DESIRED tab shows
 kustomize build services/search-service/overlays/local
-kustomize build platform/data-catalog
-kustomize build platform/data-search
 kubectl apply --dry-run=client -f apps/ -f bootstrap/
 kubectl -n argocd get applications
-kubectl -n catalog-service port-forward svc/catalog-service 8080:80
-kubectl -n search-service  port-forward svc/search-service  8081:80
+
+# The ArgoCD UI. Not 8080 — that collides with a service port-forward, and with anything else
+# already on it; the password is in argocd-initial-admin-secret.
+kubectl -n argocd port-forward svc/argocd-server 8443:443        # https://localhost:8443
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+
+kubectl -n product-search port-forward svc/catalog-service 18080:80
+kubectl -n product-search port-forward svc/search-service  18081:80
 ```
 
 **Always render after editing any YAML here.** Several manifests have been broken by pasted

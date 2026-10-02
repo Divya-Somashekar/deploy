@@ -22,10 +22,10 @@ spec:
             # ECK creates this Secret in this namespace; nothing is checked in.
             - name: SPRING_ELASTICSEARCH_PASSWORD
               valueFrom: { secretKeyRef: { name: search-es-elastic-user, key: elastic } }
-            # Cross-namespace, so it needs the fully qualified name: <service>.<namespace>.svc.
-            # Used to rebuild the index and to tail the change log — deliberately NOT part of
-            # readiness, so a catalog outage cannot make this service unready.
-            - { name: CATALOG_BASE_URL, value: "http://catalog-service.catalog-service.svc.cluster.local" }
+            # Same namespace, so the bare Service name resolves. Used to rebuild the index and
+            # to tail the change log — deliberately NOT part of readiness, so a catalog outage
+            # cannot make this service unready.
+            - { name: CATALOG_BASE_URL, value: "http://catalog-service" }
           resources: { requests: { cpu: 250m, memory: 512Mi }, limits: { memory: 768Mi } }
           startupProbe:   { httpGet: { path: /actuator/health/liveness,  port: management }, periodSeconds: 5, failureThreshold: 36 }
           livenessProbe:  { httpGet: { path: /actuator/health/liveness,  port: management } }

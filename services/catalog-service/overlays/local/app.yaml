@@ -1,0 +1,4 @@
+# Read by the `services` ApplicationSet in apps/services.yaml.
+name: catalog-service
+# Shared with search-service: one namespace per product, not per service.
+namespace: product-search

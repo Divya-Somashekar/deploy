@@ -1,11 +1,18 @@
 # One ApplicationSet instead of an Application per service.
 #
-# The git directory generator discovers every services/<name>/overlays/local and creates an
-# Application named after <name>. Onboarding a new project is then "add a directory", not "copy
-# this file and edit four fields" — which is the whole reason deploy/ became its own repo.
+# Each service declares itself in services/<dir>/overlays/local/app.yaml, and the git files
+# generator turns every one of those into an Application. Onboarding a project is still "add a
+# directory", not "copy this file and edit four fields" — which is the whole reason deploy/ became
+# its own repo.
 #
-# A directory only appears here once it contains a kustomization.yaml that renders, so a project
-# without manifests yet (chakra, redis-lab) simply is not generated.
+# The namespace comes from that file rather than from the directory name, because a namespace is an
+# RBAC, quota and NetworkPolicy boundary: it belongs to whoever owns the thing, which is a team or a
+# product, not an individual process. catalog-service and search-service are two services of one
+# product and share the `product-search` namespace; deriving the namespace from the directory would
+# have forced a namespace per service and, with it, two copies of every datastore.
+#
+# A directory only appears here once it has an app.yaml and a kustomization.yaml that renders, so a
+# project without manifests yet simply is not generated.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -19,24 +26,29 @@ spec:
     - git:
         repoURL: "https://github.com/Divya-Somashekar/deploy.git"
         revision: main
-        directories:
-          - path: services/*/overlays/local
+        files:
+          - path: services/*/overlays/local/app.yaml
   template:
     metadata:
-      # path.segments: [services, <name>, overlays, local] -> index 1 is the service name.
-      name: '{{ index .path.segments 1 }}'
+      name: '{{ .name }}'
+      # A service now ships its own datastore, so its Application owns stateful resources.
+      # Without this, deleting or renaming the Application leaves the database running and owned
+      # by nobody — `prune: true` only covers resources that vanish from a *live* Application.
+      # The trade-off is intended: removing a service from git deletes its data.
+      finalizers: [resources-finalizer.argocd.argoproj.io]
     spec:
       project: default
       source:
         repoURL: "https://github.com/Divya-Somashekar/deploy.git"
         targetRevision: main
+        # path.path is the directory holding app.yaml, i.e. the overlay itself.
         path: '{{ .path.path }}'
       destination:
         server: "https://kubernetes.default.svc"
-        # Convention: one namespace per service, named after the service. The overlay's own
-        # kustomization.yaml sets the same value, so the two agree; if they ever diverge ArgoCD
-        # reports it rather than silently applying to the wrong place.
-        namespace: '{{ index .path.segments 1 }}'
+        # Must match the `namespace:` in the overlay's kustomization.yaml. They are both set from
+        # the same app.yaml value by hand; if they ever diverge ArgoCD reports it rather than
+        # silently applying to the wrong place.
+        namespace: '{{ .namespace }}'
       syncPolicy:
         automated: { prune: true, selfHeal: true }
         syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]

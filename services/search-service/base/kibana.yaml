@@ -4,7 +4,7 @@ metadata: { name: search }
 spec:
   version: 9.4.5                       # must match the Elasticsearch version
   count: 1
-  elasticsearchRef: { name: search }   # the Elasticsearch in elasticsearch.yaml                                                                                              No changes this session
+  elasticsearchRef: { name: search }   # the Elasticsearch in elasticsearch.yaml
   http: { tls: { selfSignedCertificate: { disabled: true } } }   # PoC: plain HTTP, like ES
   podTemplate:
     spec:
