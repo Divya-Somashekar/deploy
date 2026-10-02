@@ -4,11 +4,11 @@ kind: Kustomization
 namespace: search-service
 resources:
 - ../../base
-images:
 # `search-service` is the contract with product-search's release.yaml, which runs
 #   kustomize edit set image search-service=ghcr.io/divya-somashekar/search-service:<sha>
 # Renaming it here silently stops that repo's deploys from updating the tag.
 # The placeholder tag means the pod sits in ImagePullBackOff until the first release lands.
+images:
 - name: search-service
   newName: ghcr.io/divya-somashekar/search-service
-  newTag: placeholder
+  newTag: ff1e54d292a8
