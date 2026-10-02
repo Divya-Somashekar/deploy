@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: search-service, labels: { app.kubernetes.io/name: search-service } }
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy: { rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  selector: { matchLabels: { app.kubernetes.io/name: search-service } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: search-service } }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: app
+          image: search-service
+          ports: [{ name: http, containerPort: 8080 }, { name: management, containerPort: 8081 }]
+          env:
+            # No `demo` profile and no datasource: this service has no database. Demo products
+            # reach the index through the catalog's feed like any other write.
+            - { name: SPRING_ELASTICSEARCH_URIS, value: "http://search-es-http:9200" }
+            - { name: SPRING_ELASTICSEARCH_USERNAME, value: elastic }
+            # ECK creates this Secret in this namespace; nothing is checked in.
+            - name: SPRING_ELASTICSEARCH_PASSWORD
+              valueFrom: { secretKeyRef: { name: search-es-elastic-user, key: elastic } }
+            # Cross-namespace, so it needs the fully qualified name: <service>.<namespace>.svc.
+            # Used to rebuild the index and to tail the change log — deliberately NOT part of
+            # readiness, so a catalog outage cannot make this service unready.
+            - { name: CATALOG_BASE_URL, value: "http://catalog-service.catalog-service.svc.cluster.local" }
+          resources: { requests: { cpu: 250m, memory: 512Mi }, limits: { memory: 768Mi } }
+          startupProbe:   { httpGet: { path: /actuator/health/liveness,  port: management }, periodSeconds: 5, failureThreshold: 36 }
+          livenessProbe:  { httpGet: { path: /actuator/health/liveness,  port: management } }
+          # Readiness covers Elasticsearch only. Adding the catalog here would pay for two
+          # services and keep one failure domain.
+          readinessProbe: { httpGet: { path: /actuator/health/readiness, port: management } }
+          lifecycle: { preStop: { sleep: { seconds: 5 } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes: [{ name: tmp, emptyDir: {} }]

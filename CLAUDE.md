@@ -17,10 +17,14 @@ deploy/
 ├── apps/
 │   ├── eck-operator.yaml     Helm, external repo, wave -1
 │   ├── cnpg-operator.yaml    Helm, external repo, wave -1
-│   ├── data.yaml             Application -> platform/data, wave 0
+│   ├── data.yaml             two Applications, wave 0: data-catalog, data-search
 │   └── services.yaml         ApplicationSet -> services/*/overlays/local, wave 1
-├── platform/data/            Elasticsearch (ECK) + Postgres (CloudNativePG) + Kibana
-└── services/product-search/{base,overlays/local}
+├── platform/data-catalog/    Postgres (CloudNativePG) -> ns catalog-service
+├── platform/data-search/     Elasticsearch + Kibana (ECK) -> ns search-service
+└── services/
+    ├── catalog-service/{base,overlays/local}
+    ├── search-service/{base,overlays/local}
+    └── chakra/{base,overlays/local}
 ```
 
 ## Rules that matter
@@ -49,11 +53,14 @@ deploy/
 ## Commands
 
 ```bash
-kustomize build services/product-search/overlays/local   # what ArgoCD's DESIRED tab shows
-kustomize build platform/data
+kustomize build services/catalog-service/overlays/local   # what ArgoCD's DESIRED tab shows
+kustomize build services/search-service/overlays/local
+kustomize build platform/data-catalog
+kustomize build platform/data-search
 kubectl apply --dry-run=client -f apps/ -f bootstrap/
 kubectl -n argocd get applications
-kubectl -n product-search port-forward svc/product-search 8080:80
+kubectl -n catalog-service port-forward svc/catalog-service 8080:80
+kubectl -n search-service  port-forward svc/search-service  8081:80
 ```
 
 **Always render after editing any YAML here.** Several manifests have been broken by pasted
@@ -64,7 +71,10 @@ indentation and stray terminal text. Quote URLs inside `{ … }` flow mappings.
 - Elasticsearch runs with TLS disabled and the app uses the `elastic` superuser.
 - No NetworkPolicy (minikube's default CNI does not enforce one anyway).
 - One environment (`overlays/local`); stg/prod overlays would sit beside it.
-- `platform/data` lives in the `product-search` namespace and is sized for that one service.
+- Each datastore is a single instance sized for a demo, and `search-service` keeps its change-log
+  cursor in memory, so a restart replays the catalog's change log from the beginning.
+- The catalog's `/internal/*` feed is unauthenticated and is now a cross-namespace call, so without
+  a NetworkPolicy anything in the cluster can read the whole catalogue.
 - Demo data is loaded by Flyway under the `demo` profile — never enable it anywhere real.
 
 ## Conventions
