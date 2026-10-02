@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: chakra
+resources:
+- ../../base
+images:
+# `chakra` is the contract with chakra's release.yaml, which runs
+#   kustomize edit set image chakra=ghcr.io/divya-somashekar/chakra:<sha>
+# Renaming it here silently stops that repo's deploys from updating the tag.
+# The placeholder tag means the pod sits in ImagePullBackOff until the first release lands.
+- name: chakra
+  newName: ghcr.io/divya-somashekar/chakra
+  newTag: placeholder

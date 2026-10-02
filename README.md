@@ -67,7 +67,7 @@ half-finished without breaking a sync.
 | Project | Ready? | Missing |
 |---|---|---|
 | `product-search` | yes | — |
-| `chakra` | no | a Dockerfile and a release workflow; it is Gradle + `compose.yaml` with no container build |
+| `chakra` | manifests ready | the app side: a Dockerfile, a release workflow, `DEPLOY_REPO_TOKEN` in that repo, and `spring-boot-starter-actuator` (the probes below need it). Until its first release lands a real tag, the overlay points at `:placeholder` and the pod sits in `ImagePullBackOff` |
 | `redis-lab` | not intended | it is a Testcontainers learning repo whose value is `./gradlew test`. Deploying it costs memory on an already-tight node and buys nothing. Leave it test-only. |
 
 ## How a release reaches the cluster
@@ -94,6 +94,16 @@ Do not reach for a classic PAT: it carries write access to everything you own, i
 
 Note that unlike `GITHUB_TOKEN`, pushes made with these tokens **do** trigger workflows here. That is
 why `ci.yaml` is `on: pull_request` only — an `on: push` job that wrote back would loop.
+
+## Per-service dependencies
+
+`platform/data` serves product-search only. chakra needs **Redis**, which nothing in `platform/`
+provides, so it ships its own in `services/chakra/base/redis.yaml` — a plain Deployment plus Service
+in chakra's namespace, with `emptyDir` storage because chakra can repopulate it.
+
+That is the right call while exactly one service needs Redis. The moment a second one does, promote it
+to `platform/redis/` with its own Application and point both at it; sharing a datastore across
+namespaces is a deliberate decision, not a default.
 
 ## Platform data is shared, and currently lives in one namespace
 
