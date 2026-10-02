@@ -19,16 +19,11 @@ jobs:
           found=0
           for overlay in services/*/overlays/*/; do
             echo "::group::$overlay"
-            kustomize build "$overlay" | ./kubeconform -strict -summary -
-            echo "::endgroup::"
-            found=$((found + 1))
-          done
-          for dir in platform/*/; do
-            [ -f "$dir/kustomization.yaml" ] || continue
-            echo "::group::$dir"
-            # CRDs for ECK/CloudNativePG are not in the default schema set, so skip what is missing
-            # rather than failing on resources whose operator defines the schema.
-            kustomize build "$dir" | ./kubeconform -summary -ignore-missing-schemas -
+            # -strict catches duplicate and unknown keys, which is what pasted YAML gets wrong.
+            # -ignore-missing-schemas is required because an overlay now renders its service's own
+            # datastore: CloudNativePG's Cluster and ECK's Elasticsearch/Kibana are CRDs, and their
+            # schemas are not in the default set. Dropping it fails every overlay that owns one.
+            kustomize build "$overlay" | ./kubeconform -strict -summary -ignore-missing-schemas -
             echo "::endgroup::"
             found=$((found + 1))
           done
