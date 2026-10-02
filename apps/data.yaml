@@ -1,7 +1,17 @@
+# One Application per datastore, each landing in the namespace of the service that owns it.
+#
+# They used to share a `product-search` namespace with the one service that used both. Now that
+# the catalog and search are separate services in separate namespaces, the datastores follow them:
+# a Secret is namespaced, so `products-db-app` has to exist where catalog-service runs and
+# `search-es-elastic-user` where search-service runs. Keeping them together would have meant both
+# pods able to read both credentials, which is exactly the isolation the split is meant to buy.
+#
+# The namespaces match the service names, so these agree with what the `services` ApplicationSet
+# derives from each service's directory.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: data
+  name: data-catalog
   namespace: argocd
   annotations: { argocd.argoproj.io/sync-wave: "0" }
 spec:
@@ -9,8 +19,26 @@ spec:
   source:
     repoURL: "https://github.com/Divya-Somashekar/deploy.git"
     targetRevision: main
-    path: platform/data
-  destination: { server: "https://kubernetes.default.svc", namespace: product-search }
+    path: platform/data-catalog
+  destination: { server: "https://kubernetes.default.svc", namespace: catalog-service }
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]
+    retry: { limit: 10, backoff: { duration: 10s, factor: 2, maxDuration: 3m } }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: data-search
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/Divya-Somashekar/deploy.git"
+    targetRevision: main
+    path: platform/data-search
+  destination: { server: "https://kubernetes.default.svc", namespace: search-service }
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]

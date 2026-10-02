@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Service
+metadata: { name: search-service }
+spec:
+  selector: { app.kubernetes.io/name: search-service }
+  # Only the API port; management (8081) stays pod-local for probes and scraping.
+  ports: [{ name: http, port: 80, targetPort: http }]
