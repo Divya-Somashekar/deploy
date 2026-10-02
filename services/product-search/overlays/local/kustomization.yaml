@@ -6,4 +6,4 @@ resources:
 images:
 - name: product-search
   newName: ghcr.io/divya-somashekar/product-search
-  newTag: c1b5a1f91924
+  newTag: ee59652dbf14
