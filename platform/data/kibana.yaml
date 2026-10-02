@@ -1,0 +1,13 @@
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata: { name: search }
+spec:
+  version: 9.4.5                       # must match the Elasticsearch version
+  count: 1
+  elasticsearchRef: { name: search }   # the Elasticsearch in elasticsearch.yaml                                                                                              No changes this session
+  http: { tls: { selfSignedCertificate: { disabled: true } } }   # PoC: plain HTTP, like ES
+  podTemplate:
+    spec:
+      containers:
+       - name: kibana
+         resources: { requests: { memory: 768Mi, cpu: 200m }, limits: { memory: 1Gi } }

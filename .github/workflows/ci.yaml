@@ -1,0 +1,55 @@
+name: ci
+# pull_request only, deliberately. App repos push image-tag bumps to main here using a PAT/App
+# token, and unlike GITHUB_TOKEN those pushes DO trigger workflows — an on:push job that ever wrote
+# back to the repo would loop.
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+      - name: Render and validate every service overlay
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for overlay in services/*/overlays/*/; do
+            echo "::group::$overlay"
+            kustomize build "$overlay" | ./kubeconform -strict -summary -
+            echo "::endgroup::"
+            found=$((found + 1))
+          done
+          for dir in platform/*/; do
+            [ -f "$dir/kustomization.yaml" ] || continue
+            echo "::group::$dir"
+            # CRDs for ECK/CloudNativePG are not in the default schema set, so skip what is missing
+            # rather than failing on resources whose operator defines the schema.
+            kustomize build "$dir" | ./kubeconform -summary -ignore-missing-schemas -
+            echo "::endgroup::"
+            found=$((found + 1))
+          done
+          echo "validated $found kustomize directories"
+          test "$found" -gt 0
+  argocd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate ArgoCD Applications and ApplicationSets
+        run: |
+          set -euo pipefail
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          # Argo CRDs live outside the default schema set; this checks YAML shape and apiVersion/kind.
+          ./kubeconform -summary -ignore-missing-schemas apps/ bootstrap/
+      - name: Every git source must point at this repo
+        run: |
+          set -euo pipefail
+          # Catches the classic split-repo mistake: an Application left pointing at the old app repo.
+          if grep -rn 'github.com/Divya-Somashekar/product-search' apps/ bootstrap/; then
+            echo "::error::a source still points at the application repo, not the deploy repo"
+            exit 1
+          fi
+          echo "no stale repoURLs"

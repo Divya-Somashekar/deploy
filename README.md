@@ -1,0 +1,119 @@
+# deploy
+
+GitOps configuration for every project. ArgoCD runs inside minikube, watches `main` of **this**
+repo, and applies what it finds. Application code lives elsewhere; nothing here is built.
+
+```text
+deploy/
+├── bootstrap/root-app.yaml   the only manifest applied by hand
+├── apps/                     ArgoCD Applications + the services ApplicationSet
+├── platform/data/            Elasticsearch (ECK) + Postgres (CloudNativePG) + Kibana
+└── services/
+    └── product-search/{base,overlays/local}
+```
+
+## Bootstrap a fresh cluster
+
+```bash
+minikube start --driver=docker --cpus 4 --memory 6g
+kubectl create namespace argocd
+kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl -n argocd rollout status deploy/argocd-server
+kubectl apply -f bootstrap/root-app.yaml
+kubectl -n argocd get applications          # wait for Synced / Healthy
+```
+
+`kubectl apply` on `root-app.yaml` updates it in place. Deleting `root` does **not** cascade to its
+children (no finalizer), so delete those explicitly when starting over.
+
+## What ArgoCD creates
+
+| Application | Wave | Source | Namespace |
+|---|---|---|---|
+| `eck-operator` | -1 | Helm `helm.elastic.co` `eck-operator` 3.5.0 | `elastic-system` |
+| `cnpg-operator` | -1 | Helm `cloudnative-pg.github.io/charts` 0.29.1 | `cnpg-system` |
+| `data` | 0 | `platform/data` | `product-search` |
+| `services` (ApplicationSet) | 1 | one Application per `services/*/overlays/local` | named after the service |
+
+Operators use `ServerSideApply=true` — their CRDs are too large for client-side apply. `data` and the
+generated service Applications use `SkipDryRunOnMissingResource=true` plus a `retry` block, because
+sync waves order the apps but do not wait for CRDs to be established, so a first sync can fail and
+succeed on retry.
+
+## Adding a service
+
+The `services` ApplicationSet uses a git directory generator, so onboarding is a directory, not a new
+Application file:
+
+```text
+services/<name>/
+├── base/            Deployment, Service, PodDisruptionBudget, kustomization.yaml
+└── overlays/local/  kustomization.yaml — namespace: <name>, plus the image to deploy
+```
+
+Conventions the generator depends on:
+
+- the directory name **is** the Application name and the target namespace
+- the overlay must live at `overlays/local` and render with `kustomize build`
+- the overlay's `kustomization.yaml` must set `namespace: <name>` to match the generated destination
+- `images[].name` must be a stable placeholder the release workflow can target, e.g.
+  `kustomize edit set image <name>=ghcr.io/…`
+
+A directory with no renderable overlay is simply not generated, so a project can sit here
+half-finished without breaking a sync.
+
+### Status of the other projects
+
+| Project | Ready? | Missing |
+|---|---|---|
+| `product-search` | yes | — |
+| `chakra` | no | a Dockerfile and a release workflow; it is Gradle + `compose.yaml` with no container build |
+| `redis-lab` | not intended | it is a Testcontainers learning repo whose value is `./gradlew test`. Deploying it costs memory on an already-tight node and buys nothing. Leave it test-only. |
+
+## How a release reaches the cluster
+
+```text
+push to main in an app repo (app/**)
+  └─ its release.yaml: test → build multi-arch image → push to ghcr.io
+       └─ checks out THIS repo with DEPLOY_REPO_TOKEN
+            └─ kustomize edit set image  →  commit  →  push to main here
+                 └─ ArgoCD syncs
+```
+
+A deploy is now **two commits in two repos**. `git log` in an application repo no longer tells you
+what is deployed — that history lives here.
+
+### The token
+
+Each app repo needs a secret named `DEPLOY_REPO_TOKEN` with write access to this repo:
+
+- **GitHub App installation token** (preferred) — scoped to this repo only, short-lived
+- a **fine-grained PAT** with `Contents: read/write` on this repo is simpler and acceptable for a PoC
+
+Do not reach for a classic PAT: it carries write access to everything you own, into three repos.
+
+Note that unlike `GITHUB_TOKEN`, pushes made with these tokens **do** trigger workflows here. That is
+why `ci.yaml` is `on: pull_request` only — an `on: push` job that wrote back would loop.
+
+## Platform data is shared, and currently lives in one namespace
+
+`platform/data` creates one Elasticsearch and one Postgres in the **`product-search`** namespace,
+sized for that service (ES is pinned at 1536Mi). Two consequences:
+
+- a second service wanting its own datastore needs its own resources, and probably its own
+  `platform/<name>/` subtree
+- the full stack needs ~5.5 GB. Elasticsearch exiting 137 means it ran out of memory —
+  `colima stop && colima start --cpu 4 --memory 8`, then recreate minikube
+
+## Validating a change
+
+CI renders every overlay and validates it, but do it locally before pushing — several manifests have
+been broken by pasted indentation:
+
+```bash
+kustomize build services/product-search/overlays/local
+kustomize build platform/data
+kubectl apply --dry-run=client -f apps/ -f bootstrap/
+```
+
+Quote URLs inside `{ … }` flow mappings.

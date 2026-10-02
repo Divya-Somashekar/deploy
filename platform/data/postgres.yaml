@@ -1,0 +1,7 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: { name: products-db }
+spec:
+  instances: 1
+  storage: { size: 1Gi }
+  bootstrap: { initdb: { database: products, owner: products } }

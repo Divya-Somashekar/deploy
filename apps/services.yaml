@@ -1,0 +1,43 @@
+# One ApplicationSet instead of an Application per service.
+#
+# The git directory generator discovers every services/<name>/overlays/local and creates an
+# Application named after <name>. Onboarding a new project is then "add a directory", not "copy
+# this file and edit four fields" — which is the whole reason deploy/ became its own repo.
+#
+# A directory only appears here once it contains a kustomization.yaml that renders, so a project
+# without manifests yet (chakra, redis-lab) simply is not generated.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: services
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: "https://github.com/Divya-Somashekar/deploy.git"
+        revision: main
+        directories:
+          - path: services/*/overlays/local
+  template:
+    metadata:
+      # path.segments: [services, <name>, overlays, local] -> index 1 is the service name.
+      name: '{{ index .path.segments 1 }}'
+    spec:
+      project: default
+      source:
+        repoURL: "https://github.com/Divya-Somashekar/deploy.git"
+        targetRevision: main
+        path: '{{ .path.path }}'
+      destination:
+        server: "https://kubernetes.default.svc"
+        # Convention: one namespace per service, named after the service. The overlay's own
+        # kustomization.yaml sets the same value, so the two agree; if they ever diverge ArgoCD
+        # reports it rather than silently applying to the wrong place.
+        namespace: '{{ index .path.segments 1 }}'
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true, SkipDryRunOnMissingResource=true]
+        retry: { limit: 10, backoff: { duration: 10s, factor: 2, maxDuration: 3m } }

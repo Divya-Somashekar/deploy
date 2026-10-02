@@ -1,0 +1,11 @@
+# The only manifest applied by hand. Everything else is pulled by ArgoCD from this repo.
+#   kubectl apply -f bootstrap/root-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: { name: root, namespace: argocd }
+spec:
+  project: default
+  source: { repoURL: "https://github.com/Divya-Somashekar/deploy.git", targetRevision: main, path: apps }
+  destination: { server: "https://kubernetes.default.svc", namespace: argocd }
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
