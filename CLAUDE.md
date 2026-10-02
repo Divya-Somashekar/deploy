@@ -29,6 +29,13 @@ deploy/
 
 ## Rules that matter
 
+- **An Application that owns stateful resources needs
+  `finalizers: [resources-finalizer.argocd.argoproj.io]`.** `prune: true` only removes resources
+  that disappear from a *live* Application's manifests. Delete or rename the Application itself and
+  its resources are orphaned — still running, owned by nobody, and invisible to ArgoCD. Renaming
+  `data` into `data-catalog`/`data-search` did exactly that: a second Postgres, Elasticsearch and
+  Kibana kept running in `product-search` and took the node to 94% of its memory requests, which
+  is what made the new datastores restart and hang in `ApplyingChanges`.
 - **Every git `repoURL` must point at this repo**, never at an application repo. CI fails the build
   if a reference to `github.com/Divya-Somashekar/product-search` survives — that is the classic
   split-repo regression.

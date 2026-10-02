@@ -14,6 +14,15 @@ metadata:
   name: data-catalog
   namespace: argocd
   annotations: { argocd.argoproj.io/sync-wave: "0" }
+  # Without this, deleting or RENAMING this Application leaves its Postgres behind, still running
+  # and owned by nobody. `prune: true` only removes resources that disappear from a live
+  # Application's manifests; it does nothing when the Application itself goes away. Splitting the
+  # old `data` Application into these two orphaned a Postgres, an Elasticsearch and a Kibana in the
+  # `product-search` namespace, which then had to be deleted by hand.
+  #
+  # The trade-off is real and intended: with the finalizer, removing this Application from git
+  # deletes the database. That is what GitOps means here.
+  finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
   project: default
   source:
@@ -32,6 +41,8 @@ metadata:
   name: data-search
   namespace: argocd
   annotations: { argocd.argoproj.io/sync-wave: "0" }
+  # See data-catalog above: this is what makes removal cascade instead of orphaning.
+  finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
   project: default
   source:
