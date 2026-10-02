@@ -27,6 +27,16 @@ jobs:
             echo "::endgroup::"
             found=$((found + 1))
           done
+          # platform/ is back: it holds the ClusterSecretStore, which is cluster-scoped and shared
+          # by every service, so it cannot live in one service's base/. Validated with the same
+          # flags for the same reason — a ClusterSecretStore is a CRD with no public schema.
+          for dir in platform/*/; do
+            [ -f "$dir/kustomization.yaml" ] || continue
+            echo "::group::$dir"
+            kustomize build "$dir" | ./kubeconform -strict -summary -ignore-missing-schemas -
+            echo "::endgroup::"
+            found=$((found + 1))
+          done
           echo "validated $found kustomize directories"
           test "$found" -gt 0
   argocd:

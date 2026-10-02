@@ -12,3 +12,16 @@ images:
 - name: catalog-service
   newName: ghcr.io/divya-somashekar/catalog-service
   newTag: ff1e54d292a8
+
+# Non-secret image configuration. Deliberately in git rather than fetched through External Secrets:
+# a bucket name is not a credential, and keeping it here means the repo shows what this environment
+# points at, reviewable in a diff.
+#
+# A generator rather than plain env entries in the base, because the generated name carries a
+# content hash — change the bucket and the Deployment rolls, instead of leaving running pods on the
+# old value. Must match `terraform output images_bucket` in infra/live/dev/product-search.
+configMapGenerator:
+  - name: catalog-images
+    literals:
+      - CATALOG_IMAGES_BUCKET=product-search-images-dev-758808000552
+      - AWS_REGION=eu-west-3

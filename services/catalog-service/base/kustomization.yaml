@@ -3,4 +3,4 @@ kind: Kustomization
 # postgres.yaml lives here, not in platform/, because exactly one service uses it — the same
 # reasoning that keeps chakra's redis.yaml beside chakra. Promote it to platform/ if a second
 # service ever needs it.
-resources: [deployment.yaml, service.yaml, pdb.yaml, postgres.yaml]
+resources: [deployment.yaml, service.yaml, pdb.yaml, postgres.yaml, externalsecret.yaml]
