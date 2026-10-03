@@ -1,22 +1,20 @@
-# MIGRATION STATE — step 2 of 3. Do not leave the repo here.
+# Redis for chakra: a 3-node replication group with 3 Sentinels, run by the redis-operator
+# Application at wave -1.
 #
-# The new replication group and the old single pod run side by side on purpose, so the existing
-# data can be replicated across before anything is deleted. Step 3 removes the old pair.
+# Replaces the single-pod Deployment this used to be. That pod was a single point of failure in two
+# separate ways, and both are fixed here:
+#   - it was the only copy, so its loss stopped chakra -> one primary, two replicas, and Sentinel
+#     promotes a replica automatically when the primary goes away.
+#   - it used emptyDir with `--save ""`, so its data lived only in RAM -> each pod now has its own
+#     PVC and appendonly is on, so a restart replays the journal instead of starting empty.
 #
-# The old *Service* is renamed to chakra-redis-legacy while the old *Deployment* keeps its name and
-# labels. That asymmetry is the whole trick: a Service is stateless, so renaming it just recreates a
-# virtual IP, whereas renaming the Deployment would delete and recreate its pod — and that pod's
-# emptyDir is the only copy of the data. The rename is needed because a RedisReplication named
-# chakra-redis makes the operator create a Service of exactly that name; left colliding, ArgoCD and
-# the operator would each keep rewriting it, and the operator's selector would quietly point
-# chakra's traffic at the new, empty pods.
+# Still chakra's own datastore in chakra's base/, per the rule in CLAUDE.md: only chakra uses it, so
+# it does not belong in platform/. Promote it the day a second service needs Redis.
 #
-# Operator steps between this commit and step 3:
-#   kubectl -n chakra exec sts/chakra-redis-0 -- redis-cli replicaof chakra-redis-legacy 6379
-#   kubectl -n chakra exec sts/chakra-redis-0 -- redis-cli info replication   # master_link_status:up
-#   kubectl -n chakra exec sts/chakra-redis-0 -- redis-cli dbsize             # matches the old pod
-# then `replicaof no one` and merge step 3.
----
+# Why operator CRs rather than a hand-written StatefulSet: Sentinel has to be told which pod is the
+# primary and must rewrite its own config file on failover. Doing that by hand needs an init script
+# and a writable config mount, and it still cannot promote a replica on its own. The operator owns
+# that reconciliation, exactly as CloudNativePG does for Postgres and ECK for Elasticsearch.
 apiVersion: v1
 kind: ConfigMap
 metadata: { name: chakra-redis-config }
@@ -75,44 +73,3 @@ spec:
     imagePullPolicy: IfNotPresent
     resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { memory: 128Mi } }
   podSecurityContext: { runAsUser: 1000, fsGroup: 1000 }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: chakra-redis, labels: { app.kubernetes.io/name: chakra-redis } }
-spec:
-  replicas: 1
-  revisionHistoryLimit: 3
-  # Recreate, not RollingUpdate: two Redis pods sharing one name would both accept writes.
-  strategy: { type: Recreate }
-  selector: { matchLabels: { app.kubernetes.io/name: chakra-redis } }
-  template:
-    metadata: { labels: { app.kubernetes.io/name: chakra-redis } }
-    spec:
-      securityContext: { runAsNonRoot: true, runAsUser: 999, fsGroup: 999, seccompProfile: { type: RuntimeDefault } }
-      containers:
-        - name: redis
-          image: redis:8-alpine
-          args:
-            - redis-server
-            # noeviction, not allkeys-lru: this instance holds application data, not a pure cache,
-            # so failing a write is honest where silently dropping keys is not.
-            - --maxmemory
-            - 192mb
-            - --maxmemory-policy
-            - noeviction
-            - --save
-            - ""
-          ports: [{ name: redis, containerPort: 6379 }]
-          resources: { requests: { cpu: 50m, memory: 96Mi }, limits: { memory: 256Mi } }
-          livenessProbe:  { exec: { command: [redis-cli, PING] }, periodSeconds: 10 }
-          readinessProbe: { exec: { command: [redis-cli, PING] }, periodSeconds: 5 }
-          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
-          volumeMounts: [{ name: data, mountPath: /data }]
-      volumes: [{ name: data, emptyDir: {} }]
----
-apiVersion: v1
-kind: Service
-metadata: { name: chakra-redis-legacy }
-spec:
-  selector: { app.kubernetes.io/name: chakra-redis }
-  ports: [{ name: redis, port: 6379, targetPort: redis }]
