@@ -2,9 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: { name: chakra, labels: { app.kubernetes.io/name: chakra } }
 spec:
-  # Two replicas: chakra keeps its state in Redis, so scaling out is safe. The node also carries
-  # Elasticsearch, Kibana, Postgres and two product-search pods, so this stays modest.
-  replicas: 2
+  # One replica: chakra keeps its state in Redis, so scaling out is safe, but the node already
+  # carries Elasticsearch, Kibana, Postgres and two product-search pods.
+  replicas: 1
   revisionHistoryLimit: 3
   strategy: { rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
   selector: { matchLabels: { app.kubernetes.io/name: chakra } }
