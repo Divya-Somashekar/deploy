@@ -1,12 +1,81 @@
-# Redis for chakra.
+# MIGRATION STATE — step 2 of 3. Do not leave the repo here.
 #
-# Deliberately a plain Deployment rather than an entry in platform/data or its own operator:
-# chakra is the only consumer, it lives in chakra's namespace, and one Application is simpler than
-# two. If a second service ever needs Redis, promote this to platform/redis/ with its own
-# Application and point both at it.
+# The new replication group and the old single pod run side by side on purpose, so the existing
+# data can be replicated across before anything is deleted. Step 3 removes the old pair.
 #
-# emptyDir, not a PVC: chakra treats Redis as a cache/index it can repopulate, so losing it on a
-# restart costs nothing. Give it a PVC the moment that stops being true.
+# The old *Service* is renamed to chakra-redis-legacy while the old *Deployment* keeps its name and
+# labels. That asymmetry is the whole trick: a Service is stateless, so renaming it just recreates a
+# virtual IP, whereas renaming the Deployment would delete and recreate its pod — and that pod's
+# emptyDir is the only copy of the data. The rename is needed because a RedisReplication named
+# chakra-redis makes the operator create a Service of exactly that name; left colliding, ArgoCD and
+# the operator would each keep rewriting it, and the operator's selector would quietly point
+# chakra's traffic at the new, empty pods.
+#
+# Operator steps between this commit and step 3:
+#   kubectl -n chakra exec sts/chakra-redis-0 -- redis-cli replicaof chakra-redis-legacy 6379
+#   kubectl -n chakra exec sts/chakra-redis-0 -- redis-cli info replication   # master_link_status:up
+#   kubectl -n chakra exec sts/chakra-redis-0 -- redis-cli dbsize             # matches the old pod
+# then `replicaof no one` and merge step 3.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: chakra-redis-config }
+data:
+  # The key name is fixed by the operator; it mounts this file and appends it to redis.conf.
+  # NOTE: a plain ConfigMap, not a configMapGenerator — kustomize would append a content hash to a
+  # generated name and `additionalRedisConfig` below is a literal string, so the reference would
+  # silently stop resolving.
+  redis-additional.conf: |
+    # appendonly, not `save`: a replica promoted by Sentinel must come back with the writes it had,
+    # and the AOF is replayed per command rather than from the last snapshot.
+    appendonly yes
+    appendfsync everysec
+    # noeviction, not allkeys-lru: this holds application data, not a pure cache, so failing a
+    # write is honest where silently dropping keys is not.
+    maxmemory 192mb
+    maxmemory-policy noeviction
+---
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisReplication
+metadata: { name: chakra-redis }
+spec:
+  # 3 data nodes: one primary + two replicas. Two would survive a single failure too, but leaves no
+  # replica at all during a rolling restart.
+  clusterSize: 3
+  redisConfig: { additionalRedisConfig: chakra-redis-config }
+  kubernetesConfig:
+    image: quay.io/opstree/redis:v8.10.1
+    imagePullPolicy: IfNotPresent
+    resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 256Mi } }
+  # The operator's images run as 1000, not the 999 the plain redis image used.
+  podSecurityContext: { runAsUser: 1000, fsGroup: 1000 }
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisSentinel
+metadata: { name: chakra-redis }
+spec:
+  # 3 Sentinels, an odd number: promotion needs a majority to agree, so 2 of 3 can still elect a
+  # new primary. An even count gives a quorum that can deadlock.
+  clusterSize: 3
+  redisSentinelConfig:
+    # Binds these Sentinels to the RedisReplication above; the operator keeps the monitored address
+    # pointing at whichever pod currently holds the primary role.
+    redisReplicationName: chakra-redis
+    # `myMaster` is the operator's default and is the value chakra must pass as
+    # SPRING_DATA_REDIS_SENTINEL_MASTER. Changing it here means changing it there.
+    masterGroupName: myMaster
+    quorum: "2"
+  kubernetesConfig:
+    image: quay.io/opstree/redis-sentinel:v8.10.1
+    imagePullPolicy: IfNotPresent
+    resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { memory: 128Mi } }
+  podSecurityContext: { runAsUser: 1000, fsGroup: 1000 }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: chakra-redis, labels: { app.kubernetes.io/name: chakra-redis } }
@@ -43,7 +112,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: chakra-redis }
+metadata: { name: chakra-redis-legacy }
 spec:
   selector: { app.kubernetes.io/name: chakra-redis }
   ports: [{ name: redis, port: 6379, targetPort: redis }]

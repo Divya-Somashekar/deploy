@@ -20,7 +20,7 @@ spec:
           ports: [{ name: http, containerPort: 8080 }]
           env:
             # Overrides the `localhost` default in application.yml via relaxed binding; no code change.
-            - { name: SPRING_DATA_REDIS_HOST, value: chakra-redis }
+            - { name: SPRING_DATA_REDIS_HOST, value: chakra-redis-legacy }
             - { name: SPRING_DATA_REDIS_PORT, value: "6379" }
           resources: { requests: { cpu: 150m, memory: 384Mi }, limits: { memory: 640Mi } }
           # Requires spring-boot-starter-actuator in chakra's build.gradle. Without it these 404 and
