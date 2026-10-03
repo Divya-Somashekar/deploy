@@ -23,5 +23,5 @@ images:
 configMapGenerator:
 - literals:
   - CATALOG_IMAGES_BUCKET=product-search-images-dev-758808000552
-  - AWS_REGION=eu-west-3
+  - AWS_REGION=eu-central-1
   name: catalog-images
