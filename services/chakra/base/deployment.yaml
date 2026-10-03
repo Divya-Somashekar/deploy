@@ -18,12 +18,12 @@ spec:
           # Unlike product-search, actuator shares the app port here — there is nothing to isolate.
           ports: [{ name: http, containerPort: 8080 }]
           env:
-            # Sentinel, not host/port: Lettuce asks a Sentinel which pod is the current primary and
-            # follows it when one is promoted. Setting HOST/PORT instead would pin the app to one
-            # pod and defeat the failover entirely. Still relaxed binding, so no chakra code change.
-            # The service is the operator-created ClusterIP in front of all three Sentinel pods.
-            - { name: SPRING_DATA_REDIS_SENTINEL_MASTER, value: myMaster }
-            - { name: SPRING_DATA_REDIS_SENTINEL_NODES, value: "chakra-redis-sentinel:26379" }
+            # Back to host/port now that there is no Sentinel to ask. chakra-redis-master is the
+            # operator-created Service whose selector is the pod currently labelled master, so this
+            # keeps pointing at the writable node if clusterSize is ever raised. Relaxed binding
+            # overrides the `localhost` default in application.yml; no chakra code change.
+            - { name: SPRING_DATA_REDIS_HOST, value: chakra-redis-master }
+            - { name: SPRING_DATA_REDIS_PORT, value: "6379" }
           resources: { requests: { cpu: 150m, memory: 384Mi }, limits: { memory: 640Mi } }
           # Requires spring-boot-starter-actuator in chakra's build.gradle. Without it these 404 and
           # the pod never becomes ready.
