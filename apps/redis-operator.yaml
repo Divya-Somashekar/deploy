@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis-operator
+  namespace: argocd
+  # Wave -1 with the other operators: it installs the RedisReplication and RedisSentinel CRDs that
+  # chakra's base/redis.yaml depends on at wave 1.
+  annotations: { argocd.argoproj.io/sync-wave: "-1" }
+spec:
+  project: default
+  # OT-CONTAINER-KIT, not spotahome/redis-operator: spotahome's last commit was August 2023 and its
+  # RedisFailover CRD is unmaintained. This one is released and committed to currently.
+  source: { repoURL: "https://ot-container-kit.github.io/helm-charts", chart: redis-operator, targetRevision: "0.26.1" }
+  destination: { server: "https://kubernetes.default.svc", namespace: redis-operator }
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    # ServerSideApply for the same reason as eck, cnpg and external-secrets: the CRDs exceed the
+    # annotation size limit client-side apply uses to record the last-applied configuration.
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
